@@ -5,6 +5,7 @@ package com.asusoftware.Employee_Management_API.auth;
 import com.asusoftware.Employee_Management_API.config.JwtService;
 import com.asusoftware.Employee_Management_API.config.TenantContext;
 import com.asusoftware.Employee_Management_API.model.dto.*;
+import com.asusoftware.Employee_Management_API.user.EmailVerificationService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import jakarta.validation.Valid;
@@ -19,12 +20,26 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final AuthService service;
+    private final EmailVerificationService emailVerificationService;
     private final JwtService jwt;
 
     @PostMapping("/register-company")
     public ResponseEntity<RegisterCompanyResponse> register(@Valid @RequestBody RegisterCompanyRequest req){
         var resp = service.registerCompany(req);
         return ResponseEntity.status(201).body(resp);
+    }
+
+    @GetMapping("/verify-email") // permis public în SecurityConfig
+    public org.springframework.http.ResponseEntity<Void> verifyEmail(@RequestParam String token) {
+        emailVerificationService.verify(token);
+        return org.springframework.http.ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/verify-email/resend") // permis public; primește X-Tenant
+    public org.springframework.http.ResponseEntity<Void> resend(@RequestParam String email) {
+        String tenant = TenantContext.getTenant();
+        emailVerificationService.resend(tenant, email.toLowerCase());
+        return org.springframework.http.ResponseEntity.noContent().build();
     }
 
     @PostMapping("/login")

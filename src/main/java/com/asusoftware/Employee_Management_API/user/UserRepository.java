@@ -12,4 +12,6 @@ public interface UserRepository extends JpaRepository<AppUser, UUID> {
     Optional<AppUser> findByTenantIdAndEmailIgnoreCase(String tenantId, String email);
     List<AppUser> findAllByTenantId(String tenantId);
     long countByTenantId(String tenantId);
+
+    Optional<AppUser> findByEmailVerifTokenHash(String emailVerifTokenHash);
 }

@@ -57,6 +57,18 @@ public class AppUser {
     @Column(nullable = false)
     private AuthProvider provider;
 
+    @Column(name = "email_verified", nullable = false)
+    private Boolean emailVerified = false;
+
+    @Column(name = "email_verified_at")
+    private java.time.OffsetDateTime emailVerifiedAt;
+
+    @Column(name = "email_verif_token_hash", length = 64, unique = true)
+    private String emailVerifTokenHash;
+
+    @Column(name = "email_verif_expires_at")
+    private java.time.OffsetDateTime emailVerifExpiresAt;
+
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

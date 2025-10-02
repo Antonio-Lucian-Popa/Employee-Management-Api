@@ -261,6 +261,17 @@ ALTER TABLE leave_request ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE attendance    ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE audit_log     ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE subscription  ALTER COLUMN id SET DEFAULT gen_random_uuid();
+
+ALTER TABLE app_user
+  ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS email_verif_token_hash VARCHAR(64) NULL,
+  ADD COLUMN IF NOT EXISTS email_verif_expires_at TIMESTAMPTZ NULL;
+
+-- tokenul trebuie să fie unic când există (ajută la lookup rapid la verificare)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_app_user_verif_token_hash
+  ON app_user(email_verif_token_hash)
+  WHERE email_verif_token_hash IS NOT NULL;
 -- rollback
 --  ALTER TABLE subscription  ALTER COLUMN id DROP DEFAULT;
 --  ALTER TABLE audit_log     ALTER COLUMN id DROP DEFAULT;
