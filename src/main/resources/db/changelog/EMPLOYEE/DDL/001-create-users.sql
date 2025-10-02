@@ -218,15 +218,15 @@ CREATE INDEX idx_audit_entity ON audit_log(entity, entity_id);
 -- =====================================================================
 -- changeset ems:007-subscription
 CREATE TABLE subscription (
-  id                 UUID PRIMARY KEY,
-  company_id         UUID        NOT NULL,
-  plan               TEXT        NOT NULL, -- FREE, PRO, ENTERPRISE
-  status             TEXT        NOT NULL, -- ACTIVE, TRIAL, PAST_DUE, EXPIRED
-  started_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-  trial_until        TIMESTAMPTZ,
-  expires_at         TIMESTAMPTZ,
-  last_payment_at    TIMESTAMPTZ,
-  next_payment_due   TIMESTAMPTZ,
+  id                   UUID PRIMARY KEY,
+  company_id           UUID        NOT NULL,
+  plan                 TEXT        NOT NULL, -- FREE, PRO, ENTERPRISE
+  status               TEXT        NOT NULL, -- ACTIVE, TRIAL, PAST_DUE, EXPIRED
+  started_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  trial_until          TIMESTAMPTZ,
+  expires_at           TIMESTAMPTZ,
+  last_payment_at      TIMESTAMPTZ,
+  next_payment_due     TIMESTAMPTZ,
   external_customer_id TEXT,
   external_sub_id      TEXT,
   CONSTRAINT fk_sub_company FOREIGN KEY (company_id) REFERENCES company(id)
@@ -261,17 +261,6 @@ ALTER TABLE leave_request ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE attendance    ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE audit_log     ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE subscription  ALTER COLUMN id SET DEFAULT gen_random_uuid();
-
-ALTER TABLE app_user
-  ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE,
-  ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ NULL,
-  ADD COLUMN IF NOT EXISTS email_verif_token_hash VARCHAR(64) NULL,
-  ADD COLUMN IF NOT EXISTS email_verif_expires_at TIMESTAMPTZ NULL;
-
--- tokenul trebuie să fie unic când există (ajută la lookup rapid la verificare)
-CREATE UNIQUE INDEX IF NOT EXISTS ux_app_user_verif_token_hash
-  ON app_user(email_verif_token_hash)
-  WHERE email_verif_token_hash IS NOT NULL;
 -- rollback
 --  ALTER TABLE subscription  ALTER COLUMN id DROP DEFAULT;
 --  ALTER TABLE audit_log     ALTER COLUMN id DROP DEFAULT;
@@ -287,11 +276,116 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_app_user_verif_token_hash
 -- changeset ems:009-extra-indexes
 CREATE INDEX idx_user_name ON app_user(tenant_id, last_name, first_name);
 CREATE INDEX idx_leave_status ON leave_request(tenant_id, status);
-CREATE INDEX idx_invitation_token ON invitation(token);
+-- (NU mai creăm idx_invitation_token — token e deja UNIQUE)
 -- rollback
---  DROP INDEX IF EXISTS idx_invitation_token;
 --  DROP INDEX IF EXISTS idx_leave_status;
 --  DROP INDEX IF EXISTS idx_user_name;
+
+-- =====================================================================
+-- 010: Email verification fields (fără context, pentru toate mediile)
+-- =====================================================================
+-- changeset ems:010-email-verification
+ALTER TABLE app_user
+  ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS email_verif_token_hash VARCHAR(64) NULL,
+  ADD COLUMN IF NOT EXISTS email_verif_expires_at TIMESTAMPTZ NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_app_user_verif_token_hash
+  ON app_user(email_verif_token_hash)
+  WHERE email_verif_token_hash IS NOT NULL;
+-- rollback
+--  DROP INDEX IF EXISTS ux_app_user_verif_token_hash;
+--  ALTER TABLE app_user DROP COLUMN IF EXISTS email_verif_expires_at;
+--  ALTER TABLE app_user DROP COLUMN IF EXISTS email_verif_token_hash;
+--  ALTER TABLE app_user DROP COLUMN IF EXISTS email_verified_at;
+--  ALTER TABLE app_user DROP COLUMN IF EXISTS email_verified;
+
+-- =====================================================================
+-- 011: Integritate tenant_id -> company.slug (FK pe slug)
+-- =====================================================================
+-- changeset ems:011-fk-tenant-to-company
+ALTER TABLE app_user
+  ADD CONSTRAINT fk_app_user_company_slug
+  FOREIGN KEY (tenant_id) REFERENCES company(slug)
+  ON UPDATE CASCADE ON DELETE RESTRICT;
+
+ALTER TABLE invitation
+  ADD CONSTRAINT fk_invitation_company_slug
+  FOREIGN KEY (tenant_id) REFERENCES company(slug)
+  ON UPDATE CASCADE ON DELETE RESTRICT;
+
+ALTER TABLE leave_request
+  ADD CONSTRAINT fk_leave_company_slug
+  FOREIGN KEY (tenant_id) REFERENCES company(slug)
+  ON UPDATE CASCADE ON DELETE RESTRICT;
+
+ALTER TABLE attendance
+  ADD CONSTRAINT fk_attendance_company_slug
+  FOREIGN KEY (tenant_id) REFERENCES company(slug)
+  ON UPDATE CASCADE ON DELETE RESTRICT;
+
+ALTER TABLE audit_log
+  ADD CONSTRAINT fk_audit_company_slug
+  FOREIGN KEY (tenant_id) REFERENCES company(slug)
+  ON UPDATE CASCADE ON DELETE RESTRICT;
+-- rollback
+--  ALTER TABLE audit_log DROP CONSTRAINT IF EXISTS fk_audit_company_slug;
+--  ALTER TABLE attendance DROP CONSTRAINT IF EXISTS fk_attendance_company_slug;
+--  ALTER TABLE leave_request DROP CONSTRAINT IF EXISTS fk_leave_company_slug;
+--  ALTER TABLE invitation DROP CONSTRAINT IF EXISTS fk_invitation_company_slug;
+--  ALTER TABLE app_user DROP CONSTRAINT IF EXISTS fk_app_user_company_slug;
+
+-- =====================================================================
+-- 012: Constrângeri suplimentare concedii
+-- =====================================================================
+-- changeset ems:012-leave-constraints
+ALTER TABLE leave_request
+  ADD CONSTRAINT chk_leave_dates CHECK (end_date >= start_date),
+  ADD CONSTRAINT chk_leave_days_positive CHECK (days > 0);
+-- rollback
+--  ALTER TABLE leave_request DROP CONSTRAINT IF EXISTS chk_leave_days_positive;
+--  ALTER TABLE leave_request DROP CONSTRAINT IF EXISTS chk_leave_dates;
+
+-- =====================================================================
+-- 013: (Opțional) email case-insensitive cu CITEXT
+-- =====================================================================
+-- changeset ems:013-citext context:opt
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'citext') THEN
+    CREATE EXTENSION citext;
+  END IF;
+END$$;
+
+-- Pentru a activa, scoate "context:opt" și rulează în toate mediile
+-- ALTER TABLE app_user ALTER COLUMN email TYPE CITEXT;
+-- rollback
+--  DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'citext') THEN DROP EXTENSION citext; END IF; END $$;
+
+-- =====================================================================
+-- 014: ON DELETE behavior pentru FK spre app_user
+-- =====================================================================
+-- changeset ems:014-fk-delete-behavior
+ALTER TABLE leave_request DROP CONSTRAINT IF EXISTS fk_leave_user;
+ALTER TABLE leave_request ADD CONSTRAINT fk_leave_user
+  FOREIGN KEY (user_id) REFERENCES app_user(id) ON DELETE RESTRICT;
+
+ALTER TABLE leave_request DROP CONSTRAINT IF EXISTS fk_leave_approver;
+ALTER TABLE leave_request ADD CONSTRAINT fk_leave_approver
+  FOREIGN KEY (approver_id) REFERENCES app_user(id) ON DELETE SET NULL;
+
+ALTER TABLE attendance DROP CONSTRAINT IF EXISTS fk_att_user;
+ALTER TABLE attendance ADD CONSTRAINT fk_att_user
+  FOREIGN KEY (user_id) REFERENCES app_user(id) ON DELETE RESTRICT;
+-- rollback
+--  -- revenire la varianta fără ON DELETE declarat
+--  ALTER TABLE attendance DROP CONSTRAINT IF EXISTS fk_att_user;
+--  ALTER TABLE attendance ADD CONSTRAINT fk_att_user FOREIGN KEY (user_id) REFERENCES app_user(id);
+--  ALTER TABLE leave_request DROP CONSTRAINT IF EXISTS fk_leave_approver;
+--  ALTER TABLE leave_request ADD CONSTRAINT fk_leave_approver FOREIGN KEY (approver_id) REFERENCES app_user(id);
+--  ALTER TABLE leave_request DROP CONSTRAINT IF EXISTS fk_leave_user;
+--  ALTER TABLE leave_request ADD CONSTRAINT fk_leave_user FOREIGN KEY (user_id) REFERENCES app_user(id);
 
 -- =====================================================================
 -- Sfârșit changelog
