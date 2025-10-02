@@ -1,0 +1,91 @@
+server:
+  port: 8080
+  forward-headers-strategy: native
+
+spring:
+  application:
+    name: employee-saas
+  datasource:
+    url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}
+    username: ${DB_USER}
+    password: ${DB_PASS}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate  # folose?ti doar pentru dev, in prod -> validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc.time_zone: UTC
+  liquibase:
+    change-log: classpath:/db/changelog/db.changelog-master.yaml
+    enabled: true
+    drop-first: false
+    default-schema: public
+
+  # Email config (SMTP)
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USER}
+    password: ${MAIL_PASS}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+  # OAuth2 Google
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope: [openid, email, profile]
+        provider:
+          google:
+            user-name-attribute: sub
+
+# JWT config
+app:
+  jwt:
+    issuer: ems-app
+    access-token-ttl: 15m
+    refresh-token-ttl: 30d
+    secret: ${JWT_SECRET} # cheie 256-bit, ex. generat? cu openssl rand -base64 32
+
+  # Multi-tenancy
+  tenancy:
+    mode: subdomain # sau header (X-Tenant) în dev
+
+  # Stripe config
+  stripe:
+    secret-key: ${STRIPE_SECRET_KEY}
+    webhook-secret: ${STRIPE_WEBHOOK_SECRET}
+    price-pro: ${STRIPE_PRICE_PRO}
+    price-enterprise: ${STRIPE_PRICE_ENTERPRISE}
+    frontend-success-url: https://app.tudomeniu.com/billing/success
+    frontend-cancel-url: https://app.tudomeniu.com/billing/cancel
+
+  # Feature flags
+  security:
+    allow-auto-provision: false # cont Google nou doar prin invita?ie
+  billing:
+    trial-days: 14
+
+logging:
+  level:
+    root: INFO
+    org.springframework.security: WARN
+    org.springframework.web: INFO
+    liquibase: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics

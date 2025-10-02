@@ -1,0 +1,4 @@
+databaseChangeLog:
+  - include:
+      file: DDL/001-create-users.sql
+      relativeToChangelogFile: true
