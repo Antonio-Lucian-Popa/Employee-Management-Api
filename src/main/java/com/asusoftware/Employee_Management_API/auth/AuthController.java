@@ -22,8 +22,9 @@ public class AuthController {
     private final JwtService jwt;
 
     @PostMapping("/register-company")
-    public TokenResponse register(@Valid @RequestBody RegisterCompanyRequest req){
-        return service.registerCompany(req);
+    public ResponseEntity<RegisterCompanyResponse> register(@Valid @RequestBody RegisterCompanyRequest req){
+        var resp = service.registerCompany(req);
+        return ResponseEntity.status(201).body(resp);
     }
 
     @PostMapping("/login")

@@ -5,6 +5,7 @@ import com.asusoftware.Employee_Management_API.config.JwtService;
 import com.asusoftware.Employee_Management_API.model.*;
 import com.asusoftware.Employee_Management_API.model.dto.LoginRequest;
 import com.asusoftware.Employee_Management_API.model.dto.RegisterCompanyRequest;
+import com.asusoftware.Employee_Management_API.model.dto.RegisterCompanyResponse;
 import com.asusoftware.Employee_Management_API.model.dto.TokenResponse;
 import com.asusoftware.Employee_Management_API.subscription.SubscriptionRepository;
 import com.asusoftware.Employee_Management_API.user.UserRepository;
@@ -26,7 +27,7 @@ public class AuthService {
     private final JwtService jwt;
 
     @Transactional
-    public TokenResponse registerCompany(RegisterCompanyRequest req){
+    public RegisterCompanyResponse  registerCompany(RegisterCompanyRequest req){
         // create company
         Company c = Company.builder()
                 .name(req.companyName())
@@ -60,7 +61,7 @@ public class AuthService {
         // tokens
         String access = jwt.access(owner.getId().toString(), req.slug(), owner.getRole().name());
         String refresh = jwt.refresh(owner.getId().toString());
-        return new TokenResponse(access, refresh);
+        return new RegisterCompanyResponse(c.getId(), c.getSlug(), owner.getEmail());
     }
 
     @Transactional(readOnly = true)
