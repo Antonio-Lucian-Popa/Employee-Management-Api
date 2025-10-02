@@ -32,7 +32,6 @@ public class InvitationService {
     @Transactional
     public Invitation create(String email, Role role) {
         String tenant = TenantContext.getTenant();
-
         Invitation inv = new Invitation();
         inv.setId(UUID.randomUUID());
         inv.setEmail(email.toLowerCase());
@@ -42,7 +41,6 @@ public class InvitationService {
         inv.setExpiresAt(OffsetDateTime.now().plusDays(7));
         repo.save(inv);
 
-        // email
         var msg = new SimpleMailMessage();
         msg.setTo(email);
         msg.setSubject("Invitation to join");
@@ -52,11 +50,14 @@ public class InvitationService {
         return inv;
     }
 
+    @Transactional(readOnly = true)
+    public Invitation getByToken(String token){
+        return repo.findByToken(token).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Invalid token"));
+    }
+
     @Transactional
     public AppUser accept(String token, String firstName, String lastName, String rawPassword) {
-        Invitation inv = repo.findByToken(token)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Invalid token"));
-
+        Invitation inv = getByToken(token);
         if (inv.getExpiresAt().isBefore(OffsetDateTime.now())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invitation expired");
         }
@@ -78,7 +79,6 @@ public class InvitationService {
 
         inv.setAcceptedAt(OffsetDateTime.now());
         repo.save(inv);
-
         return user;
     }
 }
