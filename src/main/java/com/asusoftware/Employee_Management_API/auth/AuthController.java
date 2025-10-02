@@ -22,30 +22,27 @@ public class AuthController {
     private final JwtService jwt;
 
     @PostMapping("/register-company")
-    public TokenResponse register(@Valid @RequestBody RegisterCompanyRequest req) {
+    public TokenResponse register(@Valid @RequestBody RegisterCompanyRequest req){
         return service.registerCompany(req);
     }
 
     @PostMapping("/login")
-    public TokenResponse login(@Valid @RequestBody LoginRequest req) {
+    public TokenResponse login(@Valid @RequestBody LoginRequest req){
         return service.login(TenantContext.getTenant(), req);
     }
 
     @PostMapping("/refresh")
-    public TokenResponse refresh(@RequestBody RefreshRequest body) {
+    public TokenResponse refresh(@RequestBody RefreshRequest body){
         Jws<Claims> jws = jwt.parse(body.refreshToken());
-        Claims claims = jws.getPayload();
-        if (!"refresh".equals(String.valueOf(claims.get("type")))) {
-            throw new RuntimeException("Invalid refresh token");
-        }
+        var claims = jws.getPayload();
+        if (!"refresh".equals(String.valueOf(claims.get("type")))) throw new RuntimeException("Invalid refresh token");
         String userId = claims.getSubject();
         String tenant = TenantContext.getTenant();
-        // Pentru simplitate setăm EMPLOYEE; alternativ, citește rolul din DB.
         return new TokenResponse(jwt.access(userId, tenant, "EMPLOYEE"), body.refreshToken());
     }
 
     @GetMapping("/me")
-    public ResponseEntity<?> me(@AuthenticationPrincipal JwtPrincipal principal) {
+    public ResponseEntity<?> me(@AuthenticationPrincipal JwtPrincipal principal){
         return ResponseEntity.ok(principal);
     }
 }

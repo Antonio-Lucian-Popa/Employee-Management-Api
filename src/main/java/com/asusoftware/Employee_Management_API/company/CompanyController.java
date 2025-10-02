@@ -10,11 +10,10 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/company")
 @RequiredArgsConstructor
 public class CompanyController {
-
     private final CompanyRepository companies;
 
     @GetMapping
-    public ResponseEntity<Company> get() {
+    public ResponseEntity<Company> get(){
         var c = companies.findBySlug(TenantContext.getTenant()).orElseThrow();
         return ResponseEntity.ok(c);
     }
