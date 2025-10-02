@@ -65,8 +65,7 @@ public class StripeService {
         }
 
         switch (event.getType()) {
-            case "checkout.session.completed" -> subs.setPlan(resolvePlan(event), SubscriptionStatus.ACTIVE);
-            case "invoice.payment_succeeded"   -> subs.setPlan(resolvePlan(event), SubscriptionStatus.ACTIVE);
+            case "checkout.session.completed", "invoice.payment_succeeded" -> subs.setPlan(resolvePlan(event), SubscriptionStatus.ACTIVE);
             case "invoice.payment_failed"      -> subs.setPlan(resolvePlan(event), SubscriptionStatus.PAST_DUE);
             case "customer.subscription.deleted" -> subs.setPlan(resolvePlan(event), SubscriptionStatus.EXPIRED);
             default -> { /* ignore */ }
