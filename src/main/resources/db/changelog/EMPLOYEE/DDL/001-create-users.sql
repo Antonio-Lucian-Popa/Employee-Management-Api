@@ -8,13 +8,8 @@
 -- 000: Pre-setup (extensii utile)
 -- =====================================================================
 -- changeset ems:000-pre-extensions context:prod,dev,local
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto') THEN
-    CREATE EXTENSION pgcrypto;
-  END IF;
-END$$;
--- rollback DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto') THEN DROP EXTENSION pgcrypto; END IF; END $$;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- rollback DROP EXTENSION IF EXISTS pgcrypto;
 
 -- =====================================================================
 -- 001: Tabelul company (tenant container)
@@ -351,17 +346,14 @@ ALTER TABLE leave_request
 -- 013: (Opțional) email case-insensitive cu CITEXT
 -- =====================================================================
 -- changeset ems:013-citext context:opt
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'citext') THEN
-    CREATE EXTENSION citext;
-  END IF;
-END$$;
+CREATE EXTENSION IF NOT EXISTS citext;
+-- rollback DROP EXTENSION IF EXISTS citext;
 
--- Pentru a activa, scoate "context:opt" și rulează în toate mediile
+-- (opțional) conversia coloanei la CITEXT -- scoate contextul dacă vrei să ruleze
+-- changeset ems:013b-email-citext context:opt
 -- ALTER TABLE app_user ALTER COLUMN email TYPE CITEXT;
 -- rollback
---  DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'citext') THEN DROP EXTENSION citext; END IF; END $$;
+--  ALTER TABLE app_user ALTER COLUMN email TYPE TEXT;
 
 -- =====================================================================
 -- 014: ON DELETE behavior pentru FK spre app_user

@@ -12,7 +12,7 @@ spring:
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: validate  # folose?ti doar pentru dev, in prod -> validate
+      ddl-auto: validate   # în prod: validate
     open-in-view: false
     properties:
       hibernate:
@@ -56,11 +56,11 @@ app:
     issuer: ems-app
     access-token-ttl: 15m
     refresh-token-ttl: 30d
-    secret: ${JWT_SECRET} # cheie 256-bit, ex. generat? cu openssl rand -base64 32
+    secret: ${JWT_SECRET} # 256-bit
 
   # Multi-tenancy
   tenancy:
-    mode: subdomain # sau header (X-Tenant) �n dev
+    mode: subdomain # sau header (X-Tenant) în dev
 
   # Stripe config
   stripe:
@@ -71,11 +71,14 @@ app:
     frontend-success-url: https://app.tudomeniu.com/billing/success
     frontend-cancel-url: https://app.tudomeniu.com/billing/cancel
 
-  # Feature flags
+  # Feature flags & dev helpers
   security:
-    allow-auto-provision: false # cont Google nou doar prin invita?ie
+    allow-auto-provision: false   # cont Google nou doar prin invitație
+    cookies-secure: false         # ← DEV: cookies HttpOnly pe HTTP
   billing:
     trial-days: 14
+  dev:
+    tenant-override: acme         # ← DEV: fallback tenant pe localhost
 
 logging:
   level:
@@ -89,3 +92,6 @@ management:
     web:
       exposure:
         include: health,info,metrics
+
+# URL-ul unde redirecționezi după succesul OAuth (citit de handler cu @Value)
+FRONTEND_OAUTH_SUCCESS_URL: "http://localhost:5173/dashboard"

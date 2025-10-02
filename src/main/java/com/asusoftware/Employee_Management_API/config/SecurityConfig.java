@@ -29,6 +29,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/api/v1/invitations/*", "/api/v1/invitations/*/accept").permitAll() // accept invitație fără login
                         .requestMatchers("/webhooks/**").permitAll()
+                        .requestMatchers( "/oauth2/**", "/login/oauth2/**", "/login", "/error").permitAll()
                         .anyRequest().authenticated()
                 )
                 .oauth2Login(o -> o.successHandler(oAuthSuccessHandler))

@@ -41,26 +41,30 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
     @Value("${app.security.cookies-secure:false}")
     private boolean cookiesSecure;
 
+    /** Fallback tenant pentru localhost (dev). Setează-l în application.yml: app.dev.tenant-override=acme */
+    @Value("${app.dev.tenant-override:}")
+    private String devTenantOverride;
+
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request,
                                         HttpServletResponse response,
                                         Authentication authentication) throws IOException {
+
         OAuth2AuthenticationToken token = (OAuth2AuthenticationToken) authentication;
         Map<String, Object> attrs = token.getPrincipal().getAttributes();
 
-        // Google oferă "email" & "sub"
         String email = (String) attrs.get("email");
         if (email == null || email.isBlank()) {
             throw new RuntimeException("OAuth2 login failed: email not provided by provider.");
         }
         email = email.toLowerCase();
 
-        // Ia tenant-ul (din subdomeniu / header, setat de TenantFilter); fallback minimal dacă lipsește
+        // 1) Tenant din context (dacă nu ai bypass pe initiere)
         String tenant = TenantContext.getTenant();
-        if (tenant == null || tenant.isBlank()) {
-            String host = request.getServerName();
-            if (host != null && host.contains(".")) tenant = host.split("\\.")[0];
-        }
+
+        // 2) Fallback-uri sigure pentru callback:
+        if (tenant == null || tenant.isBlank()) tenant = resolveTenantFromRequest(request);
+
         if (tenant == null || tenant.isBlank()) {
             throw new RuntimeException("Tenant missing during OAuth2 callback.");
         }
@@ -68,7 +72,7 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         final String emailF = email;
         final String tenantF = tenant;
 
-        // Caută userul în tenant sau creează-l (dacă e permis)
+        // găsește sau creează utilizatorul (dacă e permis)
         AppUser user = users.findByTenantIdAndEmailIgnoreCase(tenantF, emailF)
                 .orElseGet(() -> {
                     if (!allowAutoProvision) {
@@ -82,15 +86,16 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
                             .role(Role.EMPLOYEE)
                             .status(UserStatus.ACTIVE)
                             .provider(AuthProvider.GOOGLE)
+                            .emailVerified(true) // email Google e verificat
                             .build();
                     return users.save(u);
                 });
 
-        // Generează tokenuri
-        String access = jwt.access(user.getId().toString(), tenant, user.getRole().name());
+        // tokenuri
+        String access = jwt.access(user.getId().toString(), tenantF, user.getRole().name());
         String refresh = jwt.refresh(user.getId().toString());
 
-        // Setează cookies HttpOnly (secure controlat din config pentru dev/prod)
+        // cookies HttpOnly
         ResponseCookie accessCookie = ResponseCookie.from("access_token", access)
                 .httpOnly(true)
                 .secure(cookiesSecure)
@@ -99,10 +104,12 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
                 .maxAge(Duration.ofMinutes(15))
                 .build();
 
+        // ATENȚIE: dacă FE și API vor fi pe domenii diferite în producție,
+        // pentru refresh probabil vei avea nevoie SameSite=None; Secure=true.
         ResponseCookie refreshCookie = ResponseCookie.from("refresh_token", refresh)
                 .httpOnly(true)
                 .secure(cookiesSecure)
-                .sameSite("Strict")
+                .sameSite("Lax")
                 .path("/")
                 .maxAge(Duration.ofDays(30))
                 .build();
@@ -110,7 +117,29 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         response.addHeader("Set-Cookie", accessCookie.toString());
         response.addHeader("Set-Cookie", refreshCookie.toString());
 
-        // Redirect către FE
+        // redirect către FE
         getRedirectStrategy().sendRedirect(request, response, frontendUrl);
+    }
+
+    private String resolveTenantFromRequest(HttpServletRequest request) {
+        // a) X-Tenant header (dacă îl poți trimite la inițiere, nu în callback)
+        String t = request.getHeader("X-Tenant");
+        if (t != null && !t.isBlank()) return t.toLowerCase();
+
+        // b) query param (dacă ai pus ?tenant=acme pe inițiere)
+        String qp = request.getParameter("tenant");
+        if (qp != null && !qp.isBlank()) return qp.toLowerCase();
+
+        // c) hostname: subdomeniu sau localhost → override
+        String host = request.getServerName();
+        if (host != null && !host.isBlank()) {
+            if (host.equalsIgnoreCase("localhost") || host.startsWith("localhost")) {
+                if (devTenantOverride != null && !devTenantOverride.isBlank()) return devTenantOverride.toLowerCase();
+            } else {
+                String[] parts = host.split("\\.");
+                if (parts.length >= 3) return parts[0].toLowerCase();
+            }
+        }
+        return null;
     }
 }

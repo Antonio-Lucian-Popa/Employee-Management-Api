@@ -29,9 +29,16 @@ public class TenantFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws ServletException, IOException {
 
+        String path = req.getRequestURI();
+
+        // ⛳ BYPASS pentru OAuth2 și pagini asociate (IMPORTANT pt. a evita redirect loop)
+        if (startsWithAny(path, "/oauth2/", "/login/oauth2/", "/login", "/error")) {
+            chain.doFilter(req, res);
+            return;
+        }
+
         boolean setHere = false;
         try {
-            String path = req.getRequestURI();
             boolean isPublic = PUBLIC_PREFIXES.stream().anyMatch(path::startsWith);
 
             if (!isPublic) {
@@ -48,5 +55,12 @@ public class TenantFilter extends OncePerRequestFilter {
         } finally {
             if (setHere) TenantContext.clear(); // IMPORTANT – curățăm ThreadLocal
         }
+    }
+
+    private boolean startsWithAny(String path, String... prefixes) {
+        for (String p : prefixes) {
+            if (path.startsWith(p)) return true;
+        }
+        return false;
     }
 }
