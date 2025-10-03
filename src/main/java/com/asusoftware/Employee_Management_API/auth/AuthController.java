@@ -9,9 +9,11 @@ import com.asusoftware.Employee_Management_API.user.EmailVerificationService;
 import com.asusoftware.Employee_Management_API.user.UserRepository;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -103,4 +105,30 @@ public class AuthController {
     public ResponseEntity<?> me(@AuthenticationPrincipal JwtPrincipal principal){
         return ResponseEntity.ok(principal);
     }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(HttpServletResponse response) {
+        // Atenție: folosește aceleași atribute ca atunci când ai setat cookie-urile!
+        ResponseCookie accessDelete = ResponseCookie.from("access_token", "")
+                .httpOnly(true)
+                .secure(cookiesSecure)
+                .sameSite("Lax")      // pune "Strict" dacă așa ai setat inițial
+                .path("/")
+                .maxAge(0)            // <- șterge cookie
+                .build();
+
+        ResponseCookie refreshDelete = ResponseCookie.from("refresh_token", "")
+                .httpOnly(true)
+                .secure(cookiesSecure)
+                .sameSite("Lax")      // pune "Strict" dacă așa ai setat inițial
+                .path("/")
+                .maxAge(0)
+                .build();
+
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, accessDelete.toString())
+                .header(HttpHeaders.SET_COOKIE, refreshDelete.toString())
+                .build();
+    }
+
 }
