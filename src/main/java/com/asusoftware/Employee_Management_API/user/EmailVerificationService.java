@@ -57,7 +57,7 @@ public class EmailVerificationService {
         AppUser u = users.findByEmailVerifTokenHash(hash)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid token"));
 
-        if (u.getEmailVerified() != null && u.getEmailVerified()) {
+        if (u.isEmailVerified()) {
             // deja verificat – consideră 200 OK
             return;
         }
@@ -79,7 +79,7 @@ public class EmailVerificationService {
         AppUser u = users.findByTenantIdAndEmailIgnoreCase(tenant, emailLower)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.OK,
                         "If the account exists, a verification email was sent."));
-        if (Boolean.TRUE.equals(u.getEmailVerified())) return;
+        if (u.isEmailVerified()) return;
         issueTokenAndEmail(u, tenant);
     }
 
