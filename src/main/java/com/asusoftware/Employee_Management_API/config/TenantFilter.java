@@ -22,7 +22,7 @@ public class TenantFilter extends OncePerRequestFilter {
 
     // rute publice (nu cer tenant)
     private static final Set<String> PUBLIC_PREFIXES = Set.of(
-            "/api/v1/auth", "/v3/api-docs", "/swagger-ui", "/webhooks"
+            "/api/v1/auth", "/api/v1/auth/google", "/v3/api-docs", "/swagger-ui", "/webhooks"
     );
 
     @Override

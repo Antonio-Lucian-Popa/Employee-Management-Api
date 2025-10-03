@@ -9,6 +9,11 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
 
 
 @Configuration
@@ -27,6 +32,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**", "/v3/api-docs/**", "/swagger-ui/**").permitAll()
                         .requestMatchers("/api/v1/auth/**").permitAll()
+                        .requestMatchers("/api/v1/auth/google/**").permitAll()
                         .requestMatchers("/api/v1/invitations/*", "/api/v1/invitations/*/accept").permitAll() // accept invitație fără login
                         .requestMatchers("/webhooks/**").permitAll()
                         .requestMatchers( "/oauth2/**", "/login/oauth2/**", "/login", "/error").permitAll()
@@ -35,5 +41,22 @@ public class SecurityConfig {
                 .oauth2Login(o -> o.successHandler(oAuthSuccessHandler))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
+    }
+
+    @Bean
+    CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(List.of(
+                "http://localhost:5173",          // FE local
+                "https://app.tudomeniu.com"       // FE prod (dacă îl ai)
+        ));
+        config.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
+        config.setAllowedHeaders(List.of("Authorization","Content-Type","X-Tenant","X-Requested-With","Accept","Origin"));
+        config.setAllowCredentials(true);      // 👈 obligatoriu pt. cookies
+        config.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
     }
 }
