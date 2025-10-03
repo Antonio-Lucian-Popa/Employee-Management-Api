@@ -37,6 +37,11 @@ public class TenantFilter extends OncePerRequestFilter {
             return;
         }
 
+        if ("OPTIONS".equalsIgnoreCase(req.getMethod())) {
+            chain.doFilter(req, res);
+            return;
+        }
+
         boolean setHere = false;
         try {
             boolean isPublic = PUBLIC_PREFIXES.stream().anyMatch(path::startsWith);
