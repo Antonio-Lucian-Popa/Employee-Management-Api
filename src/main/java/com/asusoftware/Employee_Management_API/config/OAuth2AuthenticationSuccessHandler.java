@@ -6,6 +6,7 @@ import com.asusoftware.Employee_Management_API.model.Role;
 import com.asusoftware.Employee_Management_API.model.UserStatus;
 import com.asusoftware.Employee_Management_API.user.UserRepository;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -48,60 +49,61 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request,
                                         HttpServletResponse response,
-                                        Authentication authentication) throws IOException {
-
+                                        Authentication authentication) throws IOException, ServletException {
         OAuth2AuthenticationToken token = (OAuth2AuthenticationToken) authentication;
         Map<String, Object> attrs = token.getPrincipal().getAttributes();
 
-        String email = String.valueOf(attrs.getOrDefault("email","")).toLowerCase();
-        if (email.isBlank()) throw new RuntimeException("OAuth2 login failed: email missing");
+        String email = String.valueOf(attrs.get("email")).toLowerCase();
+        String given = String.valueOf(attrs.getOrDefault("given_name", ""));
+        String family = String.valueOf(attrs.getOrDefault("family_name", ""));
 
+        // 1) rezolvă tenant (ThreadLocal, cookie „tenant_hint”, apoi param)
         String tenant = TenantContext.getTenant();
-        if (tenant == null || tenant.isBlank()) tenant = resolveTenantFallback(request);
+        if (tenant == null || tenant.isBlank()) tenant = readCookie(request, "tenant_hint");
+        if (tenant == null || tenant.isBlank()) tenant = request.getParameter("tenant"); // fallback dev
 
-        // 1) Dacă avem tenant și userul există -> login normal
+        // 2) dacă avem tenant și user există în tenant => login direct
         if (tenant != null && !tenant.isBlank()) {
-            var userOpt = users.findByTenantIdAndEmailIgnoreCase(tenant, email);
-            if (userOpt.isPresent()) {
-                var user = userOpt.get();
-                setAuthCookies(response,
-                        jwt.access(user.getId().toString(), tenant, user.getRole().name()),
-                        jwt.refresh(user.getId().toString()));
-                getRedirectStrategy().sendRedirect(request, response, frontendSuccessUrl);
-                return;
-            }
-            // Dacă ai ales să permiți auto-provision în tenantul existent (DEV opțional)
-            if (allowAutoProvision) {
-                var user = users.save(AppUser.builder()
-                        .tenantId(tenant)
-                        .email(email)
-                        .firstName((String) attrs.getOrDefault("given_name",""))
-                        .lastName((String) attrs.getOrDefault("family_name",""))
-                        .role(Role.EMPLOYEE)
-                        .status(UserStatus.ACTIVE)
-                        .provider(AuthProvider.GOOGLE)
-                        .emailVerified(true)
-                        .build());
-                setAuthCookies(response,
-                        jwt.access(user.getId().toString(), tenant, user.getRole().name()),
-                        jwt.refresh(user.getId().toString()));
+            var existing = users.findByTenantIdAndEmailIgnoreCase(tenant, email);
+            if (existing.isPresent()) {
+                // set cookies JWT
+                var u = existing.get();
+                String access = jwt.access(u.getId().toString(), tenant, u.getRole().name());
+                String refresh = jwt.refresh(u.getId().toString());
+
+                ResponseCookie a = ResponseCookie.from("access_token", access)
+                        .httpOnly(true).secure(cookiesSecure).sameSite("Lax").path("/").maxAge(Duration.ofMinutes(15)).build();
+                ResponseCookie r = ResponseCookie.from("refresh_token", refresh)
+                        .httpOnly(true).secure(cookiesSecure).sameSite("Lax").path("/").maxAge(Duration.ofDays(30)).build();
+
+                // curăță hint-ul
+                ResponseCookie clear = ResponseCookie.from("tenant_hint","").path("/").maxAge(0).build();
+
+                response.addHeader("Set-Cookie", a.toString());
+                response.addHeader("Set-Cookie", r.toString());
+                response.addHeader("Set-Cookie", clear.toString());
+
                 getRedirectStrategy().sendRedirect(request, response, frontendSuccessUrl);
                 return;
             }
         }
 
-        // 2) Nu avem cont/tenant → generăm signup_token și trimitem spre onboarding
-        String signupToken = jwt.signup(email, Map.of(
-                "given_name", attrs.getOrDefault("given_name",""),
-                "family_name", attrs.getOrDefault("family_name",""),
-                "candidate_tenant", tenant == null ? "" : tenant
-        ));
-
-        // Redirect cu token în query (FE îl folosește pt. completare)
+        // 3) altfel → onboarding cu signup token
+        String signup = jwt.signupGoogleToken(email, given, family, Duration.ofMinutes(10));
         String url = UriComponentsBuilder.fromUriString(frontendOnboardingUrl)
-                .queryParam("t", signupToken)
-                .build().toUriString();
+                .queryParam("t", signup).build(true).toUriString();
+
+        // curăță hint-ul
+        ResponseCookie clear = ResponseCookie.from("tenant_hint","").path("/").maxAge(0).build();
+        response.addHeader("Set-Cookie", clear.toString());
+
         getRedirectStrategy().sendRedirect(request, response, url);
+    }
+
+    private String readCookie(HttpServletRequest req, String name) {
+        if (req.getCookies() == null) return null;
+        for (Cookie c : req.getCookies()) if (name.equals(c.getName())) return c.getValue();
+        return null;
     }
 
     private void setAuthCookies(HttpServletResponse response, String access, String refresh){

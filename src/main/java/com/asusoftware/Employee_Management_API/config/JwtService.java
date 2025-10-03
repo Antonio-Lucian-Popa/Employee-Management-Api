@@ -35,6 +35,21 @@ public class JwtService {
         this.signupTtl  = parseDuration(signupTtlStr); // 👈 nou
     }
 
+    public String signupGoogleToken(String email, String givenName, String familyName, Duration ttl) {
+        Instant now = Instant.now();
+        return Jwts.builder()
+                .issuer(issuer)
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plus(ttl)))
+                .claim("type", "signup")
+                .claim("provider", "GOOGLE")
+                .claim("email", email)
+                .claim("given_name", givenName)
+                .claim("family_name", familyName)
+                .signWith(key)
+                .compact();
+    }
+
     public String access(String sub, String tenant, String role){
         Instant now = Instant.now();
         return Jwts.builder()
