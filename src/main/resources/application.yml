@@ -56,6 +56,7 @@ app:
     issuer: ems-app
     access-token-ttl: 15m
     refresh-token-ttl: 30d
+    signup-token-ttl: 10m
     secret: ${JWT_SECRET} # 256-bit
 
   # Multi-tenancy

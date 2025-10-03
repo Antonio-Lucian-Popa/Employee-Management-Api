@@ -29,19 +29,19 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
     private final UserRepository users;
     private final JwtService jwt;
 
-    /** Dacă true și nu găsim userul în tenant, îl creăm automat ca EMPLOYEE. */
     @Value("${app.security.allow-auto-provision:false}")
     private boolean allowAutoProvision;
 
-    /** Unde redirecționăm după login (ex: http://localhost:5173/dashboard) */
     @Value("${FRONTEND_OAUTH_SUCCESS_URL:http://localhost:5173/dashboard}")
-    private String frontendUrl;
+    private String frontendSuccessUrl;
 
-    /** În dev pe HTTP trebuie false; în prod pe HTTPS -> true. */
+    /** Nou: unde facem onboarding (global, fără tenant subdomeniu) */
+    @Value("${FRONTEND_OAUTH_ONBOARDING_URL:http://localhost:5173/onboarding}")
+    private String frontendOnboardingUrl;
+
     @Value("${app.security.cookies-secure:false}")
     private boolean cookiesSecure;
 
-    /** Fallback tenant pentru localhost (dev). Setează-l în application.yml: app.dev.tenant-override=acme */
     @Value("${app.dev.tenant-override:}")
     private String devTenantOverride;
 
@@ -53,84 +53,73 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         OAuth2AuthenticationToken token = (OAuth2AuthenticationToken) authentication;
         Map<String, Object> attrs = token.getPrincipal().getAttributes();
 
-        String email = (String) attrs.get("email");
-        if (email == null || email.isBlank()) {
-            throw new RuntimeException("OAuth2 login failed: email not provided by provider.");
-        }
-        email = email.toLowerCase();
+        String email = String.valueOf(attrs.getOrDefault("email","")).toLowerCase();
+        if (email.isBlank()) throw new RuntimeException("OAuth2 login failed: email missing");
 
-        // 1) Tenant din context (dacă nu ai bypass pe initiere)
         String tenant = TenantContext.getTenant();
+        if (tenant == null || tenant.isBlank()) tenant = resolveTenantFallback(request);
 
-        // 2) Fallback-uri sigure pentru callback:
-        if (tenant == null || tenant.isBlank()) tenant = resolveTenantFromRequest(request);
-
-        if (tenant == null || tenant.isBlank()) {
-            throw new RuntimeException("Tenant missing during OAuth2 callback.");
+        // 1) Dacă avem tenant și userul există -> login normal
+        if (tenant != null && !tenant.isBlank()) {
+            var userOpt = users.findByTenantIdAndEmailIgnoreCase(tenant, email);
+            if (userOpt.isPresent()) {
+                var user = userOpt.get();
+                setAuthCookies(response,
+                        jwt.access(user.getId().toString(), tenant, user.getRole().name()),
+                        jwt.refresh(user.getId().toString()));
+                getRedirectStrategy().sendRedirect(request, response, frontendSuccessUrl);
+                return;
+            }
+            // Dacă ai ales să permiți auto-provision în tenantul existent (DEV opțional)
+            if (allowAutoProvision) {
+                var user = users.save(AppUser.builder()
+                        .tenantId(tenant)
+                        .email(email)
+                        .firstName((String) attrs.getOrDefault("given_name",""))
+                        .lastName((String) attrs.getOrDefault("family_name",""))
+                        .role(Role.EMPLOYEE)
+                        .status(UserStatus.ACTIVE)
+                        .provider(AuthProvider.GOOGLE)
+                        .emailVerified(true)
+                        .build());
+                setAuthCookies(response,
+                        jwt.access(user.getId().toString(), tenant, user.getRole().name()),
+                        jwt.refresh(user.getId().toString()));
+                getRedirectStrategy().sendRedirect(request, response, frontendSuccessUrl);
+                return;
+            }
         }
 
-        final String emailF = email;
-        final String tenantF = tenant;
+        // 2) Nu avem cont/tenant → generăm signup_token și trimitem spre onboarding
+        String signupToken = jwt.signup(email, Map.of(
+                "given_name", attrs.getOrDefault("given_name",""),
+                "family_name", attrs.getOrDefault("family_name",""),
+                "candidate_tenant", tenant == null ? "" : tenant
+        ));
 
-        // găsește sau creează utilizatorul (dacă e permis)
-        AppUser user = users.findByTenantIdAndEmailIgnoreCase(tenantF, emailF)
-                .orElseGet(() -> {
-                    if (!allowAutoProvision) {
-                        throw new RuntimeException("No account for this Google user in this tenant.");
-                    }
-                    AppUser u = AppUser.builder()
-                            .tenantId(tenantF)
-                            .email(emailF)
-                            .firstName((String) attrs.getOrDefault("given_name", ""))
-                            .lastName((String) attrs.getOrDefault("family_name", ""))
-                            .role(Role.EMPLOYEE)
-                            .status(UserStatus.ACTIVE)
-                            .provider(AuthProvider.GOOGLE)
-                            .emailVerified(true) // email Google e verificat
-                            .build();
-                    return users.save(u);
-                });
-
-        // tokenuri
-        String access = jwt.access(user.getId().toString(), tenantF, user.getRole().name());
-        String refresh = jwt.refresh(user.getId().toString());
-
-        // cookies HttpOnly
-        ResponseCookie accessCookie = ResponseCookie.from("access_token", access)
-                .httpOnly(true)
-                .secure(cookiesSecure)
-                .sameSite("Lax")
-                .path("/")
-                .maxAge(Duration.ofMinutes(15))
-                .build();
-
-        // ATENȚIE: dacă FE și API vor fi pe domenii diferite în producție,
-        // pentru refresh probabil vei avea nevoie SameSite=None; Secure=true.
-        ResponseCookie refreshCookie = ResponseCookie.from("refresh_token", refresh)
-                .httpOnly(true)
-                .secure(cookiesSecure)
-                .sameSite("Lax")
-                .path("/")
-                .maxAge(Duration.ofDays(30))
-                .build();
-
-        response.addHeader("Set-Cookie", accessCookie.toString());
-        response.addHeader("Set-Cookie", refreshCookie.toString());
-
-        // redirect către FE
-        getRedirectStrategy().sendRedirect(request, response, frontendUrl);
+        // Redirect cu token în query (FE îl folosește pt. completare)
+        String url = UriComponentsBuilder.fromUriString(frontendOnboardingUrl)
+                .queryParam("t", signupToken)
+                .build().toUriString();
+        getRedirectStrategy().sendRedirect(request, response, url);
     }
 
-    private String resolveTenantFromRequest(HttpServletRequest request) {
-        // a) X-Tenant header (dacă îl poți trimite la inițiere, nu în callback)
+    private void setAuthCookies(HttpServletResponse response, String access, String refresh){
+        ResponseCookie accessCookie = ResponseCookie.from("access_token", access)
+                .httpOnly(true).secure(cookiesSecure).sameSite("Lax").path("/").maxAge(Duration.ofMinutes(15)).build();
+        ResponseCookie refreshCookie = ResponseCookie.from("refresh_token", refresh)
+                .httpOnly(true).secure(cookiesSecure).sameSite("Lax").path("/").maxAge(Duration.ofDays(30)).build();
+        response.addHeader("Set-Cookie", accessCookie.toString());
+        response.addHeader("Set-Cookie", refreshCookie.toString());
+    }
+
+    private String resolveTenantFallback(HttpServletRequest request){
         String t = request.getHeader("X-Tenant");
         if (t != null && !t.isBlank()) return t.toLowerCase();
 
-        // b) query param (dacă ai pus ?tenant=acme pe inițiere)
         String qp = request.getParameter("tenant");
         if (qp != null && !qp.isBlank()) return qp.toLowerCase();
 
-        // c) hostname: subdomeniu sau localhost → override
         String host = request.getServerName();
         if (host != null && !host.isBlank()) {
             if (host.equalsIgnoreCase("localhost") || host.startsWith("localhost")) {
