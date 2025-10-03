@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -36,30 +37,29 @@ public class AuthGoogleOnboardingController {
 
     /** finalizează flow-ul OWNER: creează compania + OWNER pe baza signup token-ului */
     @PostMapping("/complete-owner")
-    public ResponseEntity<?> completeOwner(@RequestBody CompleteOwnerReq req){
-        Jws<Claims> jws = jwt.parse(req.getToken());
-        Claims c = jws.getPayload();
+    @Transactional
+    public ResponseEntity<?> completeOwner(@RequestBody CompleteOwnerReq req) {
+        var jws = jwt.parse(req.getToken());
+        var c = jws.getPayload();
         if (!"signup".equals(c.get("type")) || !"GOOGLE".equals(c.get("provider"))) {
             return ResponseEntity.badRequest().body("Invalid token type");
         }
         String email = String.valueOf(c.get("email")).toLowerCase();
-        String first = String.valueOf(c.getOrDefault("given_name",""));
-        String last  = String.valueOf(c.getOrDefault("family_name",""));
+        String first = String.valueOf(c.getOrDefault("given_name", ""));
+        String last  = String.valueOf(c.getOrDefault("family_name", ""));
 
-        // creează company (slug unic)
         if (!StringUtils.hasText(req.getSlug()) || !StringUtils.hasText(req.getCompanyName()))
             return ResponseEntity.badRequest().body("Missing company/slug");
 
         if (companies.findBySlugIgnoreCase(req.getSlug()).isPresent())
             return ResponseEntity.status(409).body("Slug already taken");
 
-        Company company = companies.save(Company.builder()
-                .id(UUID.randomUUID())
-                .name(req.getCompanyName())
-                .slug(req.getSlug().toLowerCase())
-                .build());
+        // NU seta id manual!
+        Company company = new Company();
+        company.setName(req.getCompanyName());
+        company.setSlug(req.getSlug().toLowerCase());
+        companies.save(company); // => INSERT (persist), nu merge/update
 
-        // creează user OWNER în tenantul nou
         AppUser owner = users.save(AppUser.builder()
                 .tenantId(company.getSlug())
                 .email(email)
@@ -71,29 +71,26 @@ public class AuthGoogleOnboardingController {
                 .emailVerified(true)
                 .build());
 
-        // emite cookies pe noul tenant
-        return ResponseEntity.ok(setAuthCookiesAndBody(owner, company.getSlug()));
+        return buildCookieResponse(owner, company.getSlug());
     }
 
-    /** finalizează flow-ul EMPLOYEE: consumă invitația */
     @PostMapping("/complete-invite")
-    public ResponseEntity<?> completeInvite(@RequestBody CompleteInviteReq req){
-        Jws<Claims> jws = jwt.parse(req.getToken());
-        Claims c = jws.getPayload();
+    @Transactional
+    public ResponseEntity<?> completeInvite(@RequestBody CompleteInviteReq req) {
+        var jws = jwt.parse(req.getToken());
+        var c = jws.getPayload();
         if (!"signup".equals(c.get("type")) || !"GOOGLE".equals(c.get("provider"))) {
             return ResponseEntity.badRequest().body("Invalid token type");
         }
         String email = String.valueOf(c.get("email")).toLowerCase();
 
-        Invitation inv = invitations.findByToken(req.getInvitationToken())
-                .orElse(null);
+        Invitation inv = invitations.findByToken(req.getInvitationToken()).orElse(null);
         if (inv == null || inv.getExpiresAt().isBefore(OffsetDateTime.now()))
             return ResponseEntity.badRequest().body("Invalid or expired invitation");
 
         if (!email.equalsIgnoreCase(inv.getEmail()))
             return ResponseEntity.status(403).body("Invitation email does not match Google account");
 
-        // creează user conform invitației
         AppUser user = users.findByTenantIdAndEmailIgnoreCase(inv.getTenantId(), email)
                 .orElseGet(() -> users.save(AppUser.builder()
                         .tenantId(inv.getTenantId())
@@ -109,26 +106,29 @@ public class AuthGoogleOnboardingController {
         inv.setAcceptedAt(OffsetDateTime.now());
         invitations.save(inv);
 
-        return ResponseEntity.ok(setAuthCookiesAndBody(user, inv.getTenantId()));
+        return buildCookieResponse(user, inv.getTenantId());
     }
 
-    private OnboardingResult setAuthCookiesAndBody(AppUser user, String tenant){
+    private ResponseEntity<OnboardingResult> buildCookieResponse(AppUser user, String tenant) {
         String access = jwt.access(user.getId().toString(), tenant, user.getRole().name());
         String refresh = jwt.refresh(user.getId().toString());
 
-        ResponseCookie accessCookie = ResponseCookie.from("access_token", access)
+        var accessCookie = ResponseCookie.from("access_token", access)
                 .httpOnly(true).secure(cookiesSecure).sameSite("Lax").path("/").maxAge(Duration.ofMinutes(15)).build();
-        ResponseCookie refreshCookie = ResponseCookie.from("refresh_token", refresh)
+        var refreshCookie = ResponseCookie.from("refresh_token", refresh)
                 .httpOnly(true).secure(cookiesSecure).sameSite("Lax").path("/").maxAge(Duration.ofDays(30)).build();
 
-        // NOTĂ: într-un controller real, pune-le în header; aici returnăm și payload
-        OnboardingResult res = new OnboardingResult();
-        res.setTenant(tenant);
-        res.setRole(user.getRole().name());
-        res.setUserId(user.getId().toString());
-        res.setSetCookies(new String[]{accessCookie.toString(), refreshCookie.toString()});
-        return res;
+        OnboardingResult body = new OnboardingResult();
+        body.setUserId(user.getId().toString());
+        body.setTenant(tenant);
+        body.setRole(user.getRole().name());
+
+        return ResponseEntity.ok()
+                .header("Set-Cookie", accessCookie.toString())
+                .header("Set-Cookie", refreshCookie.toString())
+                .body(body);
     }
+
 
     @Data
     public static class CompleteOwnerReq {
