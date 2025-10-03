@@ -12,12 +12,19 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
 public class LeaveService {
 
     private final LeaveRequestRepository repo;
     private final UserRepository users;
+
+    @Transactional(readOnly = true)
+    public List<LeaveRequest> findAllForTenant(String tenant) {
+        return repo.findByTenantIdOrderByCreatedAtDesc(tenant);
+    }
 
     @Transactional
     public LeaveDto create(LeaveCreateRequest r){

@@ -12,4 +12,5 @@ import java.util.UUID;
 public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID> {
     List<LeaveRequest> findByTenantIdAndUser_Id(String tenantId, UUID userId);
     List<LeaveRequest> findByTenantIdAndStartDateBetween(String tenantId, LocalDate from, LocalDate to);
+    List<LeaveRequest> findByTenantIdOrderByCreatedAtDesc(String tenantId);
 }

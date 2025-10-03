@@ -52,6 +52,9 @@ spring:
 
 # JWT config
 app:
+  frontend:
+    base-url: http://localhost:5173
+    invite-path: /invite
   jwt:
     issuer: ems-app
     access-token-ttl: 15m

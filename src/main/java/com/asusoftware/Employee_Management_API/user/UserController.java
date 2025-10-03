@@ -29,6 +29,7 @@ public class UserController {
     @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
     public List<UserDto> list(){
         String tenant = TenantContext.getTenant();
+        System.out.println("Tenant: " + tenant);
         return users.findAllByTenantId(tenant).stream()
                 .map(u -> new UserDto(u.getId(), u.getEmail(), u.getFirstName(), u.getLastName(), u.getRole(), u.getStatus()))
                 .toList();

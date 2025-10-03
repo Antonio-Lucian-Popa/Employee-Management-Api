@@ -9,6 +9,7 @@ import com.asusoftware.Employee_Management_API.model.Role;
 import com.asusoftware.Employee_Management_API.model.UserStatus;
 import com.asusoftware.Employee_Management_API.user.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -16,6 +17,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -29,11 +31,25 @@ public class InvitationService {
     private final JavaMailSender mail;
     private final PasswordEncoder passwordEncoder;
 
+    @Value("${app.frontend.base-url}")
+    private String frontendBaseUrl;
+
+    @Value("${app.frontend.invite-path:/invite}")
+    private String invitePath;
+
+    private String buildInviteUrl(String tenant, String token) {
+        return UriComponentsBuilder.fromUriString(frontendBaseUrl) // ex: http://localhost:5173
+                .path(invitePath + "/{token}")                         // -> /invite/<token>
+                .queryParam("tenant", tenant)                          // FE îl pune în localStorage
+                .buildAndExpand(token)
+                .toUriString();
+    }
+
     @Transactional
     public Invitation create(String email, Role role) {
         String tenant = TenantContext.getTenant();
+
         Invitation inv = new Invitation();
-        inv.setId(UUID.randomUUID());
         inv.setEmail(email.toLowerCase());
         inv.setRole(role);
         inv.setTenantId(tenant);
@@ -41,10 +57,12 @@ public class InvitationService {
         inv.setExpiresAt(OffsetDateTime.now().plusDays(7));
         repo.save(inv);
 
+        String link = buildInviteUrl(tenant, inv.getToken());
+
         var msg = new SimpleMailMessage();
         msg.setTo(email);
         msg.setSubject("Invitation to join");
-        msg.setText("Register here: https://" + tenant + ".frontend.local/invite/" + inv.getToken());
+        msg.setText("Register here: " + link);
         try { mail.send(msg); } catch (Exception ignored) {}
 
         return inv;

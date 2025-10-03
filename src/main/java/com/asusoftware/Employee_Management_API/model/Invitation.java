@@ -19,7 +19,7 @@ import java.util.UUID;
 )
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class Invitation {
-    @Id @GeneratedValue
+    @Id @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
 
